@@ -1,89 +1,46 @@
+#if canImport(UIKit)
 import AppAuth
 import AuthenticationServices
 import Combine
 import Foundation
 import UIKit
 
-/// Options for customizing the authorization request.
-/// All fields are optional — set only what you need.
-public struct AuthorizationOptions {
-    /// Route to a specific organization (SSO/connection lookup by org).
-    public var organizationId: String?
-    /// Route to a specific connection directly.
-    public var connectionId: String?
-    /// Pre-fill the login identifier (email or username).
-    public var loginHint: String?
-    /// Route by domain — Scalekit resolves the IdP from the domain.
-    public var domain: String?
-    /// Route to a specific social/IdP provider (e.g. "google", "github").
-    public var provider: String?
-    /// Controls re-authentication behavior ("login", "consent", "none").
-    public var prompt: String?
-
-    public init(
-        organizationId: String? = nil,
-        connectionId: String? = nil,
-        loginHint: String? = nil,
-        domain: String? = nil,
-        provider: String? = nil,
-        prompt: String? = nil
-    ) {
-        self.organizationId = organizationId
-        self.connectionId = connectionId
-        self.loginHint = loginHint
-        self.domain = domain
-        self.provider = provider
-        self.prompt = prompt
-    }
-
-    var asAdditionalParameters: [String: String] {
-        var params: [String: String] = [:]
-        if let organizationId { params["organization_id"] = organizationId }
-        if let connectionId   { params["connection_id"]   = connectionId   }
-        if let loginHint      { params["login_hint"]      = loginHint      }
-        if let domain         { params["domain"]          = domain         }
-        if let provider       { params["provider"]        = provider       }
-        if let prompt         { params["prompt"]          = prompt         }
-        return params
-    }
-}
-
-public enum ScalekitError: Error, LocalizedError {
-    case discoveryFailed
-    case authFailed
-    case notAuthenticated
-    case sessionRevoked
-    case cancelled
-
-    public var errorDescription: String? {
-        switch self {
-        case .discoveryFailed:  return "Failed to load Scalekit configuration."
-        case .authFailed:       return "Authentication failed."
-        case .notAuthenticated: return "No active session."
-        case .sessionRevoked:   return "Session was revoked. Please sign in again."
-        case .cancelled:        return "Sign-in was cancelled."
-        }
-    }
-}
+// MARK: - Client
 
 @MainActor
-public class ScalekitClient: NSObject, ObservableObject {
-    public let domain: String
+public final class ScalekitClient: NSObject, ObservableObject {
+    /// The normalized environment host (scheme and trailing slashes stripped).
+    public let environmentURL: String
     public let clientId: String
 
     private let redirectURI: URL
     private let tokenStore: KeychainTokenStore
+
+    /// In-flight login flow — prevents concurrent login attempts.
     private var currentAuthFlow: OIDExternalUserAgentSession?
+    private var isLoginInProgress = false
+
+    private var cachedConfig: OIDServiceConfiguration?
+    private var configFetchedAt: Date?
+
+    /// In-flight refresh task — concurrent renew() calls share this task
+    /// instead of each triggering a separate token exchange.
+    /// Critical for Scalekit's rotating refresh tokens: a second concurrent
+    /// exchange would fail because the first already consumed the token.
+    private var refreshTask: Task<Void, Error>?
 
     @Published public var credentials: ScalekitCredentials?
 
     public var isAuthenticated: Bool { credentials != nil }
 
-    public init(domain: String, clientId: String, redirectScheme: String) {
-        self.domain = domain
+    public init(environmentURL: String, clientId: String, redirectScheme: String) {
+        self.environmentURL = extractHost(environmentURL)
         self.clientId = clientId
-        self.redirectURI = URL(string: "\(redirectScheme):/oauth2redirect")!
-        self.tokenStore = KeychainTokenStore(service: "com.scalekit.\(domain)")
+        guard let uri = URL(string: "\(redirectScheme):/oauth2redirect") else {
+            fatalError("[ScalekitAuth] Invalid redirectScheme: '\(redirectScheme)'")
+        }
+        self.redirectURI = uri
+        self.tokenStore = KeychainTokenStore(service: "com.scalekit.\(self.environmentURL)")
         let loaded = tokenStore.load()
         self.credentials = loaded
         super.init()
@@ -93,9 +50,13 @@ public class ScalekitClient: NSObject, ObservableObject {
 
     // MARK: - Login
 
-    public func login(options: AuthorizationOptions = .init()) async throws {
+    public func login(options: AuthorizationOptions? = nil) async throws {
+        guard !isLoginInProgress else { throw ScalekitError.loginInProgress }
+        isLoginInProgress = true
+        defer { isLoginInProgress = false }
+
         let config = try await discoverConfig()
-        let extra = options.asAdditionalParameters
+        let extra = (options ?? AuthorizationOptions()).asAdditionalParameters
 
         let request = OIDAuthorizationRequest(
             configuration: config,
@@ -112,13 +73,31 @@ public class ScalekitClient: NSObject, ObservableObject {
                 self?.currentAuthFlow = nil
                 if let state {
                     continuation.resume(returning: state)
-                } else if let error = error as NSError?, error.code == OIDErrorCode.userCanceledAuthorizationFlow.rawValue {
+                } else if let error = error as NSError?,
+                          error.code == OIDErrorCode.userCanceledAuthorizationFlow.rawValue {
                     continuation.resume(throwing: ScalekitError.cancelled)
                 } else {
                     continuation.resume(throwing: error ?? ScalekitError.authFailed)
                 }
             }
             self.currentAuthFlow = flow
+        }
+
+        let idToken = authState.lastTokenResponse?.idToken ?? authState.lastAuthorizationResponse.idToken
+
+        if let idToken, let jwksURL = config.discoveryDocument?.jwksURL {
+            do {
+                try await JWTVerifier.verify(token: idToken, jwksURL: jwksURL)
+            } catch {
+                throw ScalekitError.tokenVerificationFailed(underlying: error)
+            }
+        }
+
+        // Validate nonce using the nonce AppAuth actually sent (auto-generated by the request)
+        let sentNonce = authState.lastAuthorizationResponse.request.nonce
+        if let sentNonce, let idToken,
+           let tokenNonce = JWT.claim("nonce", from: idToken) {
+            guard tokenNonce == sentNonce else { throw ScalekitError.invalidIDToken }
         }
 
         let creds = ScalekitCredentials(authState: authState)
@@ -131,6 +110,8 @@ public class ScalekitClient: NSObject, ObservableObject {
     // MARK: - Logout
 
     public func logout() async {
+        refreshTask?.cancel()
+        refreshTask = nil
         defer {
             tokenStore.clear()
             credentials = nil
@@ -140,32 +121,82 @@ public class ScalekitClient: NSObject, ObservableObject {
 
     // MARK: - Renew
 
-    /// Refreshes the access token if expired. Call before any API request.
+    /// Refreshes the access token if expired.
+    /// Concurrent calls are coalesced — all callers await the same in-flight
+    /// refresh instead of each triggering a separate token exchange.
     public func renew() async throws {
+        if let existing = refreshTask {
+            return try await existing.value
+        }
         guard let creds = credentials else { throw ScalekitError.notAuthenticated }
+        if !creds.accessTokenExpired { return }
 
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            creds.authState.performAction { [weak self] _, _, error in
-                if let error {
-                    let nsError = error as NSError
-                    if nsError.domain == OIDOAuthTokenErrorDomain {
-                        cont.resume(throwing: ScalekitError.sessionRevoked)
+        let task = Task<Void, Error> {
+            guard let creds = self.credentials else {
+                throw ScalekitError.notAuthenticated
+            }
+            guard creds.authState.refreshToken != nil else {
+                throw ScalekitError.noRefreshToken
+            }
+
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                creds.authState.performAction { _, _, error in
+                    if let error {
+                        let nsError = error as NSError
+                        if nsError.domain == OIDOAuthTokenErrorDomain {
+                            cont.resume(throwing: ScalekitError.sessionRevoked)
+                        } else if nsError.domain == NSURLErrorDomain {
+                            cont.resume(throwing: ScalekitError.networkFailure(underlying: error))
+                        } else {
+                            cont.resume(throwing: ScalekitError.renewFailed(underlying: error))
+                        }
                     } else {
-                        cont.resume(throwing: error)
+                        cont.resume()
                     }
-                } else {
-                    self?.tokenStore.save(creds)
-                    cont.resume()
                 }
             }
+            // Save after continuation resumes — back on MainActor, no data race
+            self.tokenStore.save(creds)
         }
+
+        refreshTask = task
+        defer { refreshTask = nil }
+        try await task.value
+    }
+
+    // MARK: - Token claims
+
+    /// Verifies the JWT signature and returns its decoded claims.
+    /// Works for both access tokens and ID tokens — use this to extract
+    /// custom claims your backend embeds in the access token.
+    public func decodedClaims(from token: String) async throws -> [String: Any] {
+        let config = try await discoverConfig()
+        guard let jwksURL = config.discoveryDocument?.jwksURL else {
+            throw ScalekitError.discoveryFailed
+        }
+        do {
+            try await JWTVerifier.verify(token: token, jwksURL: jwksURL)
+        } catch {
+            throw ScalekitError.tokenVerificationFailed(underlying: error)
+        }
+        guard let claims = JWT.decode(token) else {
+            throw ScalekitError.authFailed
+        }
+        return claims
     }
 
     // MARK: - Private
 
     private func discoverConfig() async throws -> OIDServiceConfiguration {
-        let issuer = URL(string: "https://\(domain)")!
-        return try await withCheckedThrowingContinuation { continuation in
+        if let config = cachedConfig,
+           let fetchedAt = configFetchedAt,
+           Date.now.timeIntervalSince(fetchedAt) < 3600 {
+            return config
+        }
+        guard let issuer = URL(string: "https://\(environmentURL)") else {
+            fatalError("[ScalekitAuth] Invalid environmentURL: '\(environmentURL)'")
+        }
+        let config = try await withCheckedThrowingContinuation { continuation in
             OIDAuthorizationService.discoverConfiguration(forIssuer: issuer) { config, error in
                 if let config {
                     continuation.resume(returning: config)
@@ -174,20 +205,26 @@ public class ScalekitClient: NSObject, ObservableObject {
                 }
             }
         }
+        cachedConfig = config
+        configFetchedAt = .now
+        return config
     }
 
     private func fireEndSession() async {
-        guard let idToken = credentials?.idToken else { return }
+        guard let idToken = credentials?.idToken,
+              let scheme = redirectURI.scheme else { return }
 
         let endpoint = credentials?.authState
             .lastAuthorizationResponse.request.configuration
             .discoveryDocument?.endSessionEndpoint
-            ?? URL(string: "https://\(domain)/oidc/logout")!
+            ?? URL(string: "https://\(environmentURL)/oidc/logout")
 
-        var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: true)!
+        guard let endpoint,
+              var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: true) else { return }
+
         components.queryItems = [
             URLQueryItem(name: "id_token_hint", value: idToken),
-            URLQueryItem(name: "post_logout_redirect_uri", value: "\(redirectURI.scheme!)://logout")
+            URLQueryItem(name: "post_logout_redirect_uri", value: "\(scheme)://logout")
         ]
         guard let url = components.url else { return }
 
@@ -195,7 +232,7 @@ public class ScalekitClient: NSObject, ObservableObject {
             let session = ASWebAuthenticationSession(
                 url: url,
                 callbackURLScheme: redirectURI.scheme
-            ) { callbackURL, error in
+            ) { callbackURL, _ in
                 cont.resume(returning: callbackURL)
             }
             session.prefersEphemeralWebBrowserSession = false
@@ -210,8 +247,9 @@ public class ScalekitClient: NSObject, ObservableObject {
     private let presentationContext = PresentationContext()
 
     private func topViewController() throws -> UIViewController {
-        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let root = scene.windows.first(where: \.isKeyWindow)?.rootViewController
+        guard let scene = UIApplication.shared.connectedScenes
+                  .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
+              let root = scene.keyWindow?.rootViewController
         else { throw ScalekitError.authFailed }
         var top = root
         while let presented = top.presentedViewController { top = presented }
@@ -219,21 +257,20 @@ public class ScalekitClient: NSObject, ObservableObject {
     }
 }
 
+// MARK: - AppAuth Delegates
+
 extension ScalekitClient: OIDAuthStateChangeDelegate {
     public nonisolated func didChange(_ state: OIDAuthState) {
-        // Called by AppAuth on every token update, including refresh token rotation.
-        // Save immediately so the rotated refresh token is never lost.
-        let creds = ScalekitCredentials(authState: state)
         Task { @MainActor in
-            print("[ScalekitAuth] Token state changed — saving rotated tokens to Keychain")
+            let creds = ScalekitCredentials(authState: state)
             self.tokenStore.save(creds)
+            self.credentials = creds
         }
     }
 }
 
 extension ScalekitClient: OIDAuthStateErrorDelegate {
     public nonisolated func authState(_ state: OIDAuthState, didEncounterAuthorizationError error: Error) {
-        print("[ScalekitAuth] Authorization error: \(error.localizedDescription)")
         Task { @MainActor in
             await self.logout()
         }
@@ -242,9 +279,19 @@ extension ScalekitClient: OIDAuthStateErrorDelegate {
 
 private class PresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first(where: \.isKeyWindow) ?? ASPresentationAnchor()
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        if let window = scenes.first(where: { $0.activationState == .foregroundActive })?.keyWindow {
+            return window
+        }
+        if let window = scenes.flatMap(\.windows).first(where: \.isKeyWindow) {
+            return window
+        }
+        if let scene = scenes.first {
+            return UIWindow(windowScene: scene)
+        }
+        // Unreachable on iOS 13+ — every app has at least one UIWindowScene
+        fatalError("[ScalekitAuth] No UIWindowScene available")
     }
 }
+
+#endif // canImport(UIKit)

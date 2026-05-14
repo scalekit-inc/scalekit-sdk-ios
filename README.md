@@ -22,7 +22,7 @@ Or in `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/scalekit-inc/scalekit-sdk-ios", from: "0.1.0")
+    .package(url: "https://github.com/scalekit-inc/scalekit-sdk-ios", from: "0.2.0")
 ]
 ```
 
@@ -58,7 +58,7 @@ import ScalekitAuth
 @main
 struct MyApp: App {
     @StateObject private var client = ScalekitClient(
-        domain: "your-env.scalekit.cloud",
+        environmentURL: "your-env.scalekit.cloud",
         clientId: "your_client_id",
         redirectScheme: "com.your.bundleid"
     )
@@ -81,7 +81,7 @@ struct MyApp: App {
 try await client.login()
 
 // With organization routing (SSO)
-try await client.login(orgId: "org_123456")
+try await client.login(options: .init(organizationId: "org_123456"))
 ```
 
 ### Access user info
@@ -93,6 +93,21 @@ if let user = client.credentials?.userInfo {
     print(user.sub)    // "usr_123456"
 }
 ```
+
+### Access token claims
+
+If your backend embeds custom claims in the access token, use `decodedClaims(from:)` to verify the JWT signature and extract them:
+
+```swift
+do {
+    let claims = try await client.decodedClaims(from: accessToken)
+    let role = claims["role"] as? String
+} catch {
+    // ScalekitError.tokenVerificationFailed if signature is invalid
+}
+```
+
+This works for both access tokens and ID tokens. The signature is verified against Scalekit's JWKS before the claims are returned.
 
 ### Refresh tokens
 

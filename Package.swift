@@ -4,7 +4,8 @@ import PackageDescription
 let package = Package(
     name: "ScalekitAuth",
     platforms: [
-        .iOS(.v15)
+        .iOS(.v15),
+        .macOS(.v13)
     ],
     products: [
         .library(
@@ -24,6 +25,10 @@ let package = Package(
             dependencies: [
                 .product(name: "AppAuth", package: "AppAuth-iOS")
             ]
+        ),
+        .testTarget(
+            name: "ScalekitAuthTests",
+            dependencies: ["ScalekitAuth"]
         )
     ]
 )

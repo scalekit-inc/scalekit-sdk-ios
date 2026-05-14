@@ -1,19 +1,24 @@
 import AppAuth
 import Foundation
 
-public struct UserInfo {
-    public let sub: String
-    public let email: String?
-    public let name: String?
-    public let picture: String?
-    public let rawClaims: [String: Any]
-}
-
-public class ScalekitCredentials {
+public final class ScalekitCredentials {
     let authState: OIDAuthState
 
     init(authState: OIDAuthState) {
         self.authState = authState
+        let idToken = authState.lastTokenResponse?.idToken
+            ?? authState.lastAuthorizationResponse.idToken
+        if let idToken, let claims = JWT.decode(idToken) {
+            self.userInfo = UserInfo(
+                sub: claims["sub"] as? String ?? "",
+                email: claims["email"] as? String,
+                name: claims["name"] as? String,
+                picture: claims["picture"] as? String,
+                rawClaims: claims
+            )
+        } else {
+            self.userInfo = nil
+        }
     }
 
     public var accessToken: String? {
@@ -39,31 +44,9 @@ public class ScalekitCredentials {
 
     public var accessTokenExpired: Bool {
         guard let expiry = accessTokenExpiryDate else { return true }
-        return expiry <= Date()
+        return expiry <= .now
     }
 
-    public var userInfo: UserInfo? {
-        guard let idToken, let claims = decodeJWTPayload(idToken) else { return nil }
-        return UserInfo(
-            sub: claims["sub"] as? String ?? "",
-            email: claims["email"] as? String,
-            name: claims["name"] as? String,
-            picture: claims["picture"] as? String,
-            rawClaims: claims
-        )
-    }
-
-    private func decodeJWTPayload(_ token: String) -> [String: Any]? {
-        let parts = token.components(separatedBy: ".")
-        guard parts.count == 3 else { return nil }
-        var base64 = parts[1]
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        let remainder = base64.count % 4
-        if remainder > 0 { base64 += String(repeating: "=", count: 4 - remainder) }
-        guard let data = Data(base64Encoded: base64),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return nil }
-        return json
-    }
+    /// Decoded claims from the ID token, available immediately after init.
+    public let userInfo: UserInfo?
 }
