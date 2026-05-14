@@ -1,0 +1,68 @@
+{
+  "": {
+    "swift-dependencies": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/primary.swiftdeps"
+  },
+  "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/Sources/ScalekitAuth/AuthorizationOptions.swift": {
+    "dependencies": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/AuthorizationOptions.d",
+    "object": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/AuthorizationOptions.swift.o",
+    "swiftmodule": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/AuthorizationOptions~partial.swiftmodule",
+    "swift-dependencies": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/AuthorizationOptions.swiftdeps",
+    "diagnostics": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/AuthorizationOptions.dia"
+  },
+  "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/Sources/ScalekitAuth/JWT.swift": {
+    "dependencies": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/JWT.d",
+    "object": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/JWT.swift.o",
+    "swiftmodule": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/JWT~partial.swiftmodule",
+    "swift-dependencies": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/JWT.swiftdeps",
+    "diagnostics": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/JWT.dia"
+  },
+  "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/Sources/ScalekitAuth/JWTVerifier.swift": {
+    "dependencies": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/JWTVerifier.d",
+    "object": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/JWTVerifier.swift.o",
+    "swiftmodule": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/JWTVerifier~partial.swiftmodule",
+    "swift-dependencies": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/JWTVerifier.swiftdeps",
+    "diagnostics": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/JWTVerifier.dia"
+  },
+  "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/Sources/ScalekitAuth/KeychainTokenStore.swift": {
+    "dependencies": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/KeychainTokenStore.d",
+    "object": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/KeychainTokenStore.swift.o",
+    "swiftmodule": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/KeychainTokenStore~partial.swiftmodule",
+    "swift-dependencies": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/KeychainTokenStore.swiftdeps",
+    "diagnostics": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/KeychainTokenStore.dia"
+  },
+  "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/Sources/ScalekitAuth/ScalekitClient.swift": {
+    "dependencies": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/ScalekitClient.d",
+    "object": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/ScalekitClient.swift.o",
+    "swiftmodule": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/ScalekitClient~partial.swiftmodule",
+    "swift-dependencies": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/ScalekitClient.swiftdeps",
+    "diagnostics": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/ScalekitClient.dia"
+  },
+  "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/Sources/ScalekitAuth/ScalekitCredentials.swift": {
+    "dependencies": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/ScalekitCredentials.d",
+    "object": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/ScalekitCredentials.swift.o",
+    "swiftmodule": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/ScalekitCredentials~partial.swiftmodule",
+    "swift-dependencies": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/ScalekitCredentials.swiftdeps",
+    "diagnostics": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/ScalekitCredentials.dia"
+  },
+  "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/Sources/ScalekitAuth/ScalekitError.swift": {
+    "dependencies": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/ScalekitError.d",
+    "object": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/ScalekitError.swift.o",
+    "swiftmodule": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/ScalekitError~partial.swiftmodule",
+    "swift-dependencies": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/ScalekitError.swiftdeps",
+    "diagnostics": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/ScalekitError.dia"
+  },
+  "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/Sources/ScalekitAuth/URLHelpers.swift": {
+    "dependencies": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/URLHelpers.d",
+    "object": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/URLHelpers.swift.o",
+    "swiftmodule": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/URLHelpers~partial.swiftmodule",
+    "swift-dependencies": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/URLHelpers.swiftdeps",
+    "diagnostics": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/URLHelpers.dia"
+  },
+  "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/Sources/ScalekitAuth/UserInfo.swift": {
+    "dependencies": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/UserInfo.d",
+    "object": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/UserInfo.swift.o",
+    "swiftmodule": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/UserInfo~partial.swiftmodule",
+    "swift-dependencies": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/UserInfo.swiftdeps",
+    "diagnostics": "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/UserInfo.dia"
+  }
+}

@@ -23,7 +23,8 @@ final class JWTVerifierTests: XCTestCase {
         return (h, p)
     }
 
-    /// Generates an EC P-256 key pair.
+    // MARK: - EC P-256 helpers
+
     private func makeECKeyPair() throws -> (private: SecKey, public: SecKey) {
         let attrs: [String: Any] = [
             kSecAttrKeyType as String: kSecAttrKeyTypeEC,
@@ -36,7 +37,6 @@ final class JWTVerifierTests: XCTestCase {
         return (privateKey, publicKey)
     }
 
-    /// Exports EC public key components (x, y) as base64url from the 65-byte uncompressed point.
     private func ecPublicKeyComponents(_ key: SecKey) throws -> (x: String, y: String) {
         var cfError: Unmanaged<CFError>?
         guard let data = SecKeyCopyExternalRepresentation(key, &cfError) as Data?,
@@ -50,7 +50,6 @@ final class JWTVerifierTests: XCTestCase {
         var i = der.startIndex
         guard der[i] == 0x30 else { throw URLError(.unknown) }
         i = der.index(after: i)
-        // Skip sequence length (may be multi-byte)
         if der[i] >= 0x80 { i = der.index(i, offsetBy: Int(der[i] & 0x7F)) }
         i = der.index(after: i)
 
@@ -73,7 +72,6 @@ final class JWTVerifierTests: XCTestCase {
         return normalize(r, size: 32) + normalize(s, size: 32)
     }
 
-    /// Signs a JWT payload with the given EC private key (ES256).
     private func makeSignedES256JWT(privateKey: SecKey, kid: String) throws -> String {
         let (h, p) = makeTokenParts(alg: "ES256", kid: kid)
         let signingInput = "\(h).\(p)"
@@ -89,7 +87,6 @@ final class JWTVerifierTests: XCTestCase {
         return "\(signingInput).\(base64url(rawSig))"
     }
 
-    /// Builds a JWKS JSON Data for an EC P-256 public key.
     private func makeES256JWKS(publicKey: SecKey, kid: String) throws -> Data {
         let (x, y) = try ecPublicKeyComponents(publicKey)
         let jwks = """
@@ -98,7 +95,92 @@ final class JWTVerifierTests: XCTestCase {
         return Data(jwks.utf8)
     }
 
-    /// Creates a URLSession backed by a mock URLProtocol that serves fixed data for a given URL.
+    // MARK: - RSA 2048 helpers
+
+    private func makeRSAKeyPair() throws -> (private: SecKey, public: SecKey) {
+        let attrs: [String: Any] = [
+            kSecAttrKeyType as String: kSecAttrKeyTypeRSA,
+            kSecAttrKeySizeInBits as String: 2048
+        ]
+        var cfError: Unmanaged<CFError>?
+        guard let privateKey = SecKeyCreateRandomKey(attrs as CFDictionary, &cfError),
+              let publicKey = SecKeyCopyPublicKey(privateKey)
+        else { throw cfError!.takeRetainedValue() as Error }
+        return (privateKey, publicKey)
+    }
+
+    /// Extracts n and e from a PKCS#1 DER RSA public key (65-byte format used by SecKeyCopyExternalRepresentation).
+    private func rsaPublicKeyComponents(_ key: SecKey) throws -> (n: String, e: String) {
+        var cfError: Unmanaged<CFError>?
+        guard let der = SecKeyCopyExternalRepresentation(key, &cfError) as Data?
+        else { throw cfError?.takeRetainedValue() as? Error ?? URLError(.unknown) }
+
+        // PKCS#1 DER: SEQUENCE { INTEGER n, INTEGER e }
+        // Skip outer SEQUENCE tag+length, then read two INTEGERs.
+        var i = der.startIndex
+        guard der[i] == 0x30 else { throw URLError(.badServerResponse) }
+        i = der.index(after: i)
+        // Skip sequence length (may be multi-byte)
+        if der[i] >= 0x80 {
+            let extra = Int(der[i] & 0x7F)
+            i = der.index(i, offsetBy: 1 + extra)
+        } else {
+            i = der.index(after: i)
+        }
+
+        func readDERInt() throws -> Data {
+            guard der[i] == 0x02 else { throw URLError(.badServerResponse) }
+            i = der.index(after: i)
+            var len: Int
+            if der[i] >= 0x80 {
+                let extra = Int(der[i] & 0x7F)
+                i = der.index(after: i)
+                len = 0
+                for _ in 0..<extra {
+                    len = (len << 8) | Int(der[i])
+                    i = der.index(after: i)
+                }
+            } else {
+                len = Int(der[i])
+                i = der.index(after: i)
+            }
+            let value = Data(der[i..<der.index(i, offsetBy: len)])
+            i = der.index(i, offsetBy: len)
+            return value
+        }
+
+        let n = try readDERInt()
+        let e = try readDERInt()
+
+        // Strip leading zero byte that DER uses to indicate positive integer
+        let nStripped = n.first == 0x00 ? n.dropFirst() : n
+        return (base64url(Data(nStripped)), base64url(e))
+    }
+
+    private func makeSignedRS256JWT(privateKey: SecKey, kid: String) throws -> String {
+        let (h, p) = makeTokenParts(alg: "RS256", kid: kid)
+        let signingInput = "\(h).\(p)"
+        var cfError: Unmanaged<CFError>?
+        guard let sig = SecKeyCreateSignature(
+            privateKey,
+            .rsaSignatureMessagePKCS1v15SHA256,
+            Data(signingInput.utf8) as CFData,
+            &cfError
+        ) as Data?
+        else { throw cfError!.takeRetainedValue() as Error }
+        return "\(signingInput).\(base64url(sig))"
+    }
+
+    private func makeRS256JWKS(publicKey: SecKey, kid: String) throws -> Data {
+        let (n, e) = try rsaPublicKeyComponents(publicKey)
+        let jwks = """
+        {"keys":[{"kty":"RSA","kid":"\(kid)","alg":"RS256","n":"\(n)","e":"\(e)"}]}
+        """
+        return Data(jwks.utf8)
+    }
+
+    // MARK: - Session helpers
+
     private func mockSession(url: URL, data: Data) -> URLSession {
         MockURLProtocol.stub(url: url, data: data)
         let config = URLSessionConfiguration.ephemeral
@@ -106,7 +188,7 @@ final class JWTVerifierTests: XCTestCase {
         return URLSession(configuration: config)
     }
 
-    /// A unique JWKS URL per test to avoid JWKS cache collisions between test runs.
+    /// Unique JWKS URL per test to avoid JWKS cache collisions between test runs.
     private func freshJWKSURL() -> URL {
         URL(string: "https://test.scalekit.invalid/jwks/\(UUID().uuidString)")!
     }
@@ -166,7 +248,6 @@ final class JWTVerifierTests: XCTestCase {
         let jwksData = try makeES256JWKS(publicKey: publicKey, kid: kid)
         let session = mockSession(url: jwksURL, data: jwksData)
 
-        // Should not throw
         try await JWTVerifier.verify(token: jwt, jwksURL: jwksURL, urlSession: session)
     }
 
@@ -174,7 +255,7 @@ final class JWTVerifierTests: XCTestCase {
         let kid = "es256-mismatch-\(UUID().uuidString)"
         let jwksURL = freshJWKSURL()
         let (privateKey, _) = try makeECKeyPair()
-        let (_, differentPublicKey) = try makeECKeyPair()  // different key in JWKS
+        let (_, differentPublicKey) = try makeECKeyPair()
         let jwt = try makeSignedES256JWT(privateKey: privateKey, kid: kid)
         let jwksData = try makeES256JWKS(publicKey: differentPublicKey, kid: kid)
         let session = mockSession(url: jwksURL, data: jwksData)
@@ -189,7 +270,6 @@ final class JWTVerifierTests: XCTestCase {
     func testKeyNotFoundThrowsWhenKidMissing() async throws {
         let jwksURL = freshJWKSURL()
         let (_, publicKey) = try makeECKeyPair()
-        // JWKS has "different-kid" but JWT uses "missing-kid"
         let jwksData = try makeES256JWKS(publicKey: publicKey, kid: "different-kid")
         let (privateKey, _) = try makeECKeyPair()
         let jwt = try makeSignedES256JWT(privateKey: privateKey, kid: "missing-kid")
@@ -202,24 +282,57 @@ final class JWTVerifierTests: XCTestCase {
             XCTFail("Expected keyNotFound, got \(error)")
         }
     }
+
+    // MARK: - RS256 happy path
+
+    func testRS256ValidSignatureVerifies() async throws {
+        let kid = "rs256-test-\(UUID().uuidString)"
+        let jwksURL = freshJWKSURL()
+        let (privateKey, publicKey) = try makeRSAKeyPair()
+        let jwt = try makeSignedRS256JWT(privateKey: privateKey, kid: kid)
+        let jwksData = try makeRS256JWKS(publicKey: publicKey, kid: kid)
+        let session = mockSession(url: jwksURL, data: jwksData)
+
+        try await JWTVerifier.verify(token: jwt, jwksURL: jwksURL, urlSession: session)
+    }
+
+    func testRS256WrongKeyThrowsSignatureInvalid() async throws {
+        let kid = "rs256-mismatch-\(UUID().uuidString)"
+        let jwksURL = freshJWKSURL()
+        let (privateKey, _) = try makeRSAKeyPair()
+        let (_, differentPublicKey) = try makeRSAKeyPair()
+        let jwt = try makeSignedRS256JWT(privateKey: privateKey, kid: kid)
+        let jwksData = try makeRS256JWKS(publicKey: differentPublicKey, kid: kid)
+        let session = mockSession(url: jwksURL, data: jwksData)
+
+        await XCTAssertThrowsErrorAsync(
+            try await JWTVerifier.verify(token: jwt, jwksURL: jwksURL, urlSession: session)
+        ) { error in
+            XCTAssertEqual(error as? JWTVerifier.Error, .signatureInvalid)
+        }
+    }
 }
 
 // MARK: - MockURLProtocol
 
 private class MockURLProtocol: URLProtocol {
-    private static var stubs: [URL: Data] = [:]
+    private static let queue = DispatchQueue(label: "MockURLProtocol.stubs")
+    private static var _stubs: [URL: Data] = [:]
 
-    static func stub(url: URL, data: Data) { stubs[url] = data }
+    static func stub(url: URL, data: Data) {
+        queue.sync { _stubs[url] = data }
+    }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        guard let url = request.url, let data = MockURLProtocol.stubs[url] else {
+        let data = MockURLProtocol.queue.sync { MockURLProtocol._stubs[request.url!] }
+        guard let data else {
             client?.urlProtocol(self, didFailWithError: URLError(.fileDoesNotExist))
             return
         }
-        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)

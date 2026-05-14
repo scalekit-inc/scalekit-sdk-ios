@@ -1,0 +1,4 @@
+module AppAuthTV {
+    umbrella "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/checkouts/AppAuth-iOS/Sources/AppAuthTV"
+    export *
+}

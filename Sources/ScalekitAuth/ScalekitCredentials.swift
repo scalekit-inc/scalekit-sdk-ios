@@ -6,6 +6,19 @@ public class ScalekitCredentials {
 
     init(authState: OIDAuthState) {
         self.authState = authState
+        let idToken = authState.lastTokenResponse?.idToken
+            ?? authState.lastAuthorizationResponse.idToken
+        if let idToken, let claims = JWT.decode(idToken) {
+            self.userInfo = UserInfo(
+                sub: claims["sub"] as? String ?? "",
+                email: claims["email"] as? String,
+                name: claims["name"] as? String,
+                picture: claims["picture"] as? String,
+                rawClaims: claims
+            )
+        } else {
+            self.userInfo = nil
+        }
     }
 
     public var accessToken: String? {
@@ -34,15 +47,6 @@ public class ScalekitCredentials {
         return expiry <= .now
     }
 
-    /// Decoded claims from the ID token. Computed once on first access.
-    public private(set) lazy var userInfo: UserInfo? = {
-        guard let idToken, let claims = JWT.decode(idToken) else { return nil }
-        return UserInfo(
-            sub: claims["sub"] as? String ?? "",
-            email: claims["email"] as? String,
-            name: claims["name"] as? String,
-            picture: claims["picture"] as? String,
-            rawClaims: claims
-        )
-    }()
+    /// Decoded claims from the ID token, available immediately after init.
+    public let userInfo: UserInfo?
 }

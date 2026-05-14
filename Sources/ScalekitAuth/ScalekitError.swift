@@ -7,7 +7,7 @@ public enum ScalekitError: Error, LocalizedError {
     case authFailed
     /// No active session — call login() first.
     case notAuthenticated
-    /// The refresh token has no refresh token stored — re-login required.
+    /// No refresh token is available — re-authentication required.
     case noRefreshToken
     /// The server rejected the refresh token — session was revoked.
     case sessionRevoked

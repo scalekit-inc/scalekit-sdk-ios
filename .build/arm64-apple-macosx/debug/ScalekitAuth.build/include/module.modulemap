@@ -1,0 +1,3 @@
+module ScalekitAuth {
+    header "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/arm64-apple-macosx/debug/ScalekitAuth.build/include/ScalekitAuth-Swift.h"
+}

@@ -26,8 +26,10 @@ enum JWTVerifier {
     // MARK: - Cache (actor-isolated for thread safety)
 
     private struct CacheEntry {
-        let rawKeys: [[String: Any]]
-        let builtKeys: [String: SecKey]  // kid → pre-built SecKey
+        /// Pre-built keys keyed by kid, for the common case where the JWT header contains a kid.
+        let builtKeys: [String: SecKey]
+        /// Raw JWK dicts for the rare no-kid fallback (alg-based lookup).
+        let fallbackKeys: [[String: Any]]
         let fetchedAt: Date
         var isExpired: Bool { Date.now.timeIntervalSince(fetchedAt) > 86_400 } // 24 h
     }
@@ -79,7 +81,7 @@ enum JWTVerifier {
         }
 
         let rawKeys = try await fetchKeys(from: jwksURL, urlSession: urlSession)
-        let entry = CacheEntry(rawKeys: rawKeys, builtKeys: buildSecKeys(from: rawKeys), fetchedAt: .now)
+        let entry = CacheEntry(builtKeys: buildSecKeys(from: rawKeys), fallbackKeys: rawKeys, fetchedAt: .now)
         await jwksCache.set(entry, for: jwksURL)
 
         guard let key = lookupKey(kid: kid, alg: alg, in: entry)
@@ -93,7 +95,7 @@ enum JWTVerifier {
             return entry.builtKeys[kid]
         }
         // No kid in JWT header: use first key whose alg matches
-        return entry.rawKeys
+        return entry.fallbackKeys
             .first(where: { ($0["alg"] as? String) == alg })
             .flatMap { try? buildKey(from: $0, alg: alg) }
     }
