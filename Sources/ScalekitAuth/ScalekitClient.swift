@@ -69,6 +69,8 @@ public enum ScalekitError: Error, LocalizedError {
     case cancelled
     /// A login is already in progress — wait for it to complete.
     case loginInProgress
+    /// The ID token returned by the server is missing or has an invalid nonce.
+    case invalidIDToken
 
     public var errorDescription: String? {
         switch self {
@@ -81,6 +83,7 @@ public enum ScalekitError: Error, LocalizedError {
         case .networkFailure(let e):     return "Network error: \(e.localizedDescription)"
         case .cancelled:                 return "Sign-in was cancelled."
         case .loginInProgress:           return "A sign-in is already in progress."
+        case .invalidIDToken:            return "The ID token is invalid. Please sign in again."
         }
     }
 }
@@ -142,7 +145,9 @@ public class ScalekitClient: NSObject, ObservableObject {
         defer { isLoginInProgress = false }
 
         let config = try await discoverConfig()
-        let extra = options.asAdditionalParameters
+        var extra = options.asAdditionalParameters
+        let nonce = Self.generateNonce()
+        extra["nonce"] = nonce
 
         let request = OIDAuthorizationRequest(
             configuration: config,
@@ -150,7 +155,7 @@ public class ScalekitClient: NSObject, ObservableObject {
             scopes: [OIDScopeOpenID, OIDScopeProfile, OIDScopeEmail, "offline_access"],
             redirectURL: redirectURI,
             responseType: OIDResponseTypeCode,
-            additionalParameters: extra.isEmpty ? nil : extra
+            additionalParameters: extra
         )
 
         let vc = try topViewController()
@@ -169,6 +174,7 @@ public class ScalekitClient: NSObject, ObservableObject {
             self.currentAuthFlow = flow
         }
 
+        try Self.validateNonce(nonce, in: authState)
         let creds = ScalekitCredentials(authState: authState)
         authState.stateChangeDelegate = self
         authState.errorDelegate = self
@@ -232,6 +238,35 @@ public class ScalekitClient: NSObject, ObservableObject {
     }
 
     // MARK: - Private
+
+    /// Generates a cryptographically random 32-byte nonce, base64url-encoded.
+    private static func generateNonce() -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        return Data(bytes).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    /// Decodes the ID token and verifies its nonce claim matches what was sent.
+    private static func validateNonce(_ nonce: String, in authState: OIDAuthState) throws {
+        let idToken = authState.lastTokenResponse?.idToken
+            ?? authState.lastAuthorizationResponse.idToken
+        guard let idToken else { throw ScalekitError.invalidIDToken }
+        let parts = idToken.components(separatedBy: ".")
+        guard parts.count == 3 else { throw ScalekitError.invalidIDToken }
+        var base64 = parts[1]
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let rem = base64.count % 4
+        if rem > 0 { base64 += String(repeating: "=", count: 4 - rem) }
+        guard let data = Data(base64Encoded: base64),
+              let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let tokenNonce = claims["nonce"] as? String,
+              tokenNonce == nonce
+        else { throw ScalekitError.invalidIDToken }
+    }
 
     private func discoverConfig() async throws -> OIDServiceConfiguration {
         let issuer = URL(string: "https://\(environmentURL)")!
