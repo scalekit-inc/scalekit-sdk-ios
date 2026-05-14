@@ -204,7 +204,7 @@ enum JWTVerifier {
     }
 
     private static func base64urlDecode(_ string: String) -> Data? {
-        var s = string.replacing("-", with: "+").replacing("_", with: "/")
+        var s = string.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         let rem = s.count % 4
         if rem > 0 { s += String(repeating: "=", count: 4 - rem) }
         return Data(base64Encoded: s)
