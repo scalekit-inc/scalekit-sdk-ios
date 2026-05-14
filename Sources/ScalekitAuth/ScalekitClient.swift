@@ -48,23 +48,44 @@ public struct AuthorizationOptions {
     }
 }
 
+// MARK: - Errors
+
 public enum ScalekitError: Error, LocalizedError {
+    /// OIDC discovery failed — check the domain is correct and reachable.
     case discoveryFailed
+    /// The authorization flow failed for an unknown reason.
     case authFailed
+    /// No active session — call login() first.
     case notAuthenticated
+    /// The refresh token has no refresh token stored — re-login required.
+    case noRefreshToken
+    /// The server rejected the refresh token — session was revoked.
     case sessionRevoked
+    /// Token renewal failed due to a server or network error.
+    case renewFailed(underlying: Error)
+    /// A network error occurred.
+    case networkFailure(underlying: Error)
+    /// The user cancelled the sign-in flow.
     case cancelled
+    /// A login is already in progress — wait for it to complete.
+    case loginInProgress
 
     public var errorDescription: String? {
         switch self {
-        case .discoveryFailed:  return "Failed to load Scalekit configuration."
-        case .authFailed:       return "Authentication failed."
-        case .notAuthenticated: return "No active session."
-        case .sessionRevoked:   return "Session was revoked. Please sign in again."
-        case .cancelled:        return "Sign-in was cancelled."
+        case .discoveryFailed:           return "Failed to load Scalekit configuration."
+        case .authFailed:                return "Authentication failed."
+        case .notAuthenticated:          return "No active session."
+        case .noRefreshToken:            return "No refresh token available. Please sign in again."
+        case .sessionRevoked:            return "Session was revoked. Please sign in again."
+        case .renewFailed(let e):        return "Token renewal failed: \(e.localizedDescription)"
+        case .networkFailure(let e):     return "Network error: \(e.localizedDescription)"
+        case .cancelled:                 return "Sign-in was cancelled."
+        case .loginInProgress:           return "A sign-in is already in progress."
         }
     }
 }
+
+// MARK: - Client
 
 @MainActor
 public class ScalekitClient: NSObject, ObservableObject {
@@ -73,7 +94,16 @@ public class ScalekitClient: NSObject, ObservableObject {
 
     private let redirectURI: URL
     private let tokenStore: KeychainTokenStore
+
+    /// In-flight login flow — prevents concurrent login attempts.
     private var currentAuthFlow: OIDExternalUserAgentSession?
+    private var isLoginInProgress = false
+
+    /// In-flight refresh task — concurrent renew() calls share this task
+    /// instead of each triggering a separate token exchange.
+    /// Critical for Scalekit's rotating refresh tokens: a second concurrent
+    /// exchange would fail because the first already consumed the token.
+    private var refreshTask: Task<Void, Error>?
 
     @Published public var credentials: ScalekitCredentials?
 
@@ -94,6 +124,10 @@ public class ScalekitClient: NSObject, ObservableObject {
     // MARK: - Login
 
     public func login(options: AuthorizationOptions = .init()) async throws {
+        guard !isLoginInProgress else { throw ScalekitError.loginInProgress }
+        isLoginInProgress = true
+        defer { isLoginInProgress = false }
+
         let config = try await discoverConfig()
         let extra = options.asAdditionalParameters
 
@@ -112,7 +146,8 @@ public class ScalekitClient: NSObject, ObservableObject {
                 self?.currentAuthFlow = nil
                 if let state {
                     continuation.resume(returning: state)
-                } else if let error = error as NSError?, error.code == OIDErrorCode.userCanceledAuthorizationFlow.rawValue {
+                } else if let error = error as NSError?,
+                          error.code == OIDErrorCode.userCanceledAuthorizationFlow.rawValue {
                     continuation.resume(throwing: ScalekitError.cancelled)
                 } else {
                     continuation.resume(throwing: error ?? ScalekitError.authFailed)
@@ -131,6 +166,8 @@ public class ScalekitClient: NSObject, ObservableObject {
     // MARK: - Logout
 
     public func logout() async {
+        refreshTask?.cancel()
+        refreshTask = nil
         defer {
             tokenStore.clear()
             credentials = nil
@@ -140,25 +177,45 @@ public class ScalekitClient: NSObject, ObservableObject {
 
     // MARK: - Renew
 
-    /// Refreshes the access token if expired. Call before any API request.
+    /// Refreshes the access token if expired.
+    /// Concurrent calls are coalesced — all callers await the same in-flight
+    /// refresh instead of each triggering a separate token exchange.
     public func renew() async throws {
-        guard let creds = credentials else { throw ScalekitError.notAuthenticated }
+        if let existing = refreshTask {
+            return try await existing.value
+        }
 
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            creds.authState.performAction { [weak self] _, _, error in
-                if let error {
-                    let nsError = error as NSError
-                    if nsError.domain == OIDOAuthTokenErrorDomain {
-                        cont.resume(throwing: ScalekitError.sessionRevoked)
+        let task = Task<Void, Error> {
+            guard let creds = self.credentials else {
+                throw ScalekitError.notAuthenticated
+            }
+            guard creds.authState.refreshToken != nil else {
+                throw ScalekitError.noRefreshToken
+            }
+
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                creds.authState.performAction { [weak self] _, _, error in
+                    if let error {
+                        let nsError = error as NSError
+                        if nsError.domain == OIDOAuthTokenErrorDomain {
+                            cont.resume(throwing: ScalekitError.sessionRevoked)
+                        } else if (nsError as URLError?)?.code == .notConnectedToInternet
+                               || nsError.domain == NSURLErrorDomain {
+                            cont.resume(throwing: ScalekitError.networkFailure(underlying: error))
+                        } else {
+                            cont.resume(throwing: ScalekitError.renewFailed(underlying: error))
+                        }
                     } else {
-                        cont.resume(throwing: error)
+                        self?.tokenStore.save(creds)
+                        cont.resume()
                     }
-                } else {
-                    self?.tokenStore.save(creds)
-                    cont.resume()
                 }
             }
         }
+
+        refreshTask = task
+        defer { refreshTask = nil }
+        try await task.value
     }
 
     // MARK: - Private
@@ -219,13 +276,12 @@ public class ScalekitClient: NSObject, ObservableObject {
     }
 }
 
+// MARK: - AppAuth Delegates
+
 extension ScalekitClient: OIDAuthStateChangeDelegate {
     public nonisolated func didChange(_ state: OIDAuthState) {
-        // Called by AppAuth on every token update, including refresh token rotation.
-        // Save immediately so the rotated refresh token is never lost.
         let creds = ScalekitCredentials(authState: state)
         Task { @MainActor in
-            print("[ScalekitAuth] Token state changed — saving rotated tokens to Keychain")
             self.tokenStore.save(creds)
         }
     }
@@ -233,7 +289,6 @@ extension ScalekitClient: OIDAuthStateChangeDelegate {
 
 extension ScalekitClient: OIDAuthStateErrorDelegate {
     public nonisolated func authState(_ state: OIDAuthState, didEncounterAuthorizationError error: Error) {
-        print("[ScalekitAuth] Authorization error: \(error.localizedDescription)")
         Task { @MainActor in
             await self.logout()
         }
