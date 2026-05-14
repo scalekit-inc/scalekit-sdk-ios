@@ -1,4 +1,0 @@
-module AppAuthCore {
-    umbrella "/Users/ravimadabhushi/Documents/scalekit-sdk-ios/.build/checkouts/AppAuth-iOS/Sources/AppAuthCore"
-    export *
-}

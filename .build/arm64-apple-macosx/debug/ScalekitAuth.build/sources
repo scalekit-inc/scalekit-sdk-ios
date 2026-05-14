@@ -1,9 +1,0 @@
-/Users/ravimadabhushi/Documents/scalekit-sdk-ios/Sources/ScalekitAuth/AuthorizationOptions.swift
-/Users/ravimadabhushi/Documents/scalekit-sdk-ios/Sources/ScalekitAuth/JWT.swift
-/Users/ravimadabhushi/Documents/scalekit-sdk-ios/Sources/ScalekitAuth/JWTVerifier.swift
-/Users/ravimadabhushi/Documents/scalekit-sdk-ios/Sources/ScalekitAuth/KeychainTokenStore.swift
-/Users/ravimadabhushi/Documents/scalekit-sdk-ios/Sources/ScalekitAuth/ScalekitClient.swift
-/Users/ravimadabhushi/Documents/scalekit-sdk-ios/Sources/ScalekitAuth/ScalekitCredentials.swift
-/Users/ravimadabhushi/Documents/scalekit-sdk-ios/Sources/ScalekitAuth/ScalekitError.swift
-/Users/ravimadabhushi/Documents/scalekit-sdk-ios/Sources/ScalekitAuth/URLHelpers.swift
-/Users/ravimadabhushi/Documents/scalekit-sdk-ios/Sources/ScalekitAuth/UserInfo.swift
