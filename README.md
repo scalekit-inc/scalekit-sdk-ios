@@ -28,13 +28,16 @@ dependencies: [
 
 ## Setup
 
-### 1. Register a redirect URI
+### 1. Register redirect URIs in Scalekit
 
-In the Scalekit dashboard, register a redirect URI for your app:
+In the Scalekit dashboard, open your Native Application and register both URIs:
 
-```
-com.your.bundleid:/oauth2redirect
-```
+| Purpose | URI |
+|---|---|
+| Login callback | `com.your.bundleid:/oauth2redirect` |
+| Post-logout callback | `com.your.bundleid://logout` |
+
+Both use your app's bundle identifier as the URL scheme.
 
 ### 2. Add the URL scheme to Info.plist
 
@@ -71,6 +74,20 @@ struct MyApp: App {
     }
 }
 ```
+
+If the default paths (`/oauth2redirect` and `//logout`) conflict with an existing handler in your app, you can override them:
+
+```swift
+ScalekitClient(
+    environmentURL: "your-env.scalekit.cloud",
+    clientId: "your_client_id",
+    redirectScheme: "com.your.bundleid",
+    redirectPath: "/auth/callback",
+    postLogoutPath: "//loggedout"
+)
+```
+
+Make sure the overridden paths match what you registered in the Scalekit dashboard.
 
 ## Usage
 
@@ -123,12 +140,6 @@ let accessToken = client.credentials?.accessToken
 
 ```swift
 await client.logout()
-```
-
-Register the post-logout redirect URI in the Scalekit dashboard:
-
-```
-com.your.bundleid://logout
 ```
 
 ## Session management
