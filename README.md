@@ -34,7 +34,7 @@ In the Scalekit dashboard, open your Native Application and register both URIs:
 
 | Purpose | URI |
 |---|---|
-| Login callback | `com.your.bundleid:/oauth2redirect` |
+| Login callback | `com.your.bundleid:/scalekit/callback` |
 | Post-logout callback | `com.your.bundleid:/logout` |
 
 Both use your app's bundle identifier as the URL scheme.
@@ -75,7 +75,7 @@ struct MyApp: App {
 }
 ```
 
-If the default paths (`/oauth2redirect` and `//logout`) conflict with an existing handler in your app, you can override them:
+If the default paths (`/scalekit/callback` and `/logout`) conflict with an existing handler in your app, you can override them:
 
 ```swift
 ScalekitClient(

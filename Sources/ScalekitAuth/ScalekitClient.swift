@@ -38,7 +38,7 @@ public final class ScalekitClient: NSObject, ObservableObject {
     ///   - environmentURL: Your Scalekit environment URL (e.g. "acme.scalekit.cloud").
     ///   - clientId: Your native app client ID from the Scalekit dashboard.
     ///   - redirectScheme: Your app's bundle identifier, registered as a URL scheme in Info.plist.
-    ///   - redirectPath: Path appended to the scheme for the login callback. Defaults to `/oauth2redirect`.
+    ///   - redirectPath: Path appended to the scheme for the login callback. Defaults to `/scalekit/callback`.
     ///     Override only if that path conflicts with another registered handler in your app.
     ///   - postLogoutPath: Path appended to the scheme for the post-logout callback. Defaults to `/logout`.
     ///     Override only if that path conflicts with another registered handler in your app.
@@ -46,7 +46,7 @@ public final class ScalekitClient: NSObject, ObservableObject {
         environmentURL: String,
         clientId: String,
         redirectScheme: String,
-        redirectPath: String = "/oauth2redirect",
+        redirectPath: String = "/scalekit/callback",
         postLogoutPath: String = "/logout"
     ) {
         self.environmentURL = extractHost(environmentURL)
