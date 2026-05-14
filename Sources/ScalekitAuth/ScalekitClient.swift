@@ -8,7 +8,7 @@ import UIKit
 // MARK: - Client
 
 @MainActor
-public class ScalekitClient: NSObject, ObservableObject {
+public final class ScalekitClient: NSObject, ObservableObject {
     /// The normalized environment host (scheme and trailing slashes stripped).
     public let environmentURL: String
     public let clientId: String
@@ -128,6 +128,8 @@ public class ScalekitClient: NSObject, ObservableObject {
         if let existing = refreshTask {
             return try await existing.value
         }
+        guard let creds = credentials else { throw ScalekitError.notAuthenticated }
+        if !creds.accessTokenExpired { return }
 
         let task = Task<Void, Error> {
             guard let creds = self.credentials else {

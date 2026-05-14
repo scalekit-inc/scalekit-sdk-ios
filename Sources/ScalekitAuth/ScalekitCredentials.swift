@@ -1,7 +1,7 @@
 import AppAuth
 import Foundation
 
-public class ScalekitCredentials {
+public final class ScalekitCredentials {
     let authState: OIDAuthState
 
     init(authState: OIDAuthState) {

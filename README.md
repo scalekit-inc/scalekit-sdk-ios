@@ -94,6 +94,21 @@ if let user = client.credentials?.userInfo {
 }
 ```
 
+### Access token claims
+
+If your backend embeds custom claims in the access token, use `decodedClaims(from:)` to verify the JWT signature and extract them:
+
+```swift
+do {
+    let claims = try await client.decodedClaims(from: accessToken)
+    let role = claims["role"] as? String
+} catch {
+    // ScalekitError.tokenVerificationFailed if signature is invalid
+}
+```
+
+This works for both access tokens and ID tokens. The signature is verified against Scalekit's JWKS before the claims are returned.
+
 ### Refresh tokens
 
 ```swift
