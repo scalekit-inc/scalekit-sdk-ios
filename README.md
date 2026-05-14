@@ -58,7 +58,7 @@ import ScalekitAuth
 @main
 struct MyApp: App {
     @StateObject private var client = ScalekitClient(
-        domain: "your-env.scalekit.cloud",
+        environmentURL: "your-env.scalekit.cloud",
         clientId: "your_client_id",
         redirectScheme: "com.your.bundleid"
     )
@@ -81,7 +81,7 @@ struct MyApp: App {
 try await client.login()
 
 // With organization routing (SSO)
-try await client.login(orgId: "org_123456")
+try await client.login(options: .init(organizationId: "org_123456"))
 ```
 
 ### Access user info

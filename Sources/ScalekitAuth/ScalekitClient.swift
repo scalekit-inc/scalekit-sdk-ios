@@ -51,7 +51,7 @@ public struct AuthorizationOptions {
 // MARK: - Errors
 
 public enum ScalekitError: Error, LocalizedError {
-    /// OIDC discovery failed — check the domain is correct and reachable.
+    /// OIDC discovery failed — check the environmentURL is correct and reachable.
     case discoveryFailed
     /// The authorization flow failed for an unknown reason.
     case authFailed
@@ -89,7 +89,8 @@ public enum ScalekitError: Error, LocalizedError {
 
 @MainActor
 public class ScalekitClient: NSObject, ObservableObject {
-    public let domain: String
+    /// The normalized environment host (scheme and trailing slashes stripped).
+    public let environmentURL: String
     public let clientId: String
 
     private let redirectURI: URL
@@ -109,16 +110,28 @@ public class ScalekitClient: NSObject, ObservableObject {
 
     public var isAuthenticated: Bool { credentials != nil }
 
-    public init(domain: String, clientId: String, redirectScheme: String) {
-        self.domain = domain
+    public init(environmentURL: String, clientId: String, redirectScheme: String) {
+        self.environmentURL = Self.extractHost(environmentURL)
         self.clientId = clientId
         self.redirectURI = URL(string: "\(redirectScheme):/oauth2redirect")!
-        self.tokenStore = KeychainTokenStore(service: "com.scalekit.\(domain)")
+        self.tokenStore = KeychainTokenStore(service: "com.scalekit.\(self.environmentURL)")
         let loaded = tokenStore.load()
         self.credentials = loaded
         super.init()
         loaded?.authState.stateChangeDelegate = self
         loaded?.authState.errorDelegate = self
+    }
+
+    /// Accepts "https://env.scalekit.cloud", "env.scalekit.cloud", or
+    /// "https://env.scalekit.cloud/" and returns the bare host in all cases.
+    private static func extractHost(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.contains("://"),
+           let url = URL(string: trimmed),
+           let host = url.host {
+            return host
+        }
+        return trimmed.components(separatedBy: "/").first ?? trimmed
     }
 
     // MARK: - Login
@@ -221,7 +234,7 @@ public class ScalekitClient: NSObject, ObservableObject {
     // MARK: - Private
 
     private func discoverConfig() async throws -> OIDServiceConfiguration {
-        let issuer = URL(string: "https://\(domain)")!
+        let issuer = URL(string: "https://\(environmentURL)")!
         return try await withCheckedThrowingContinuation { continuation in
             OIDAuthorizationService.discoverConfiguration(forIssuer: issuer) { config, error in
                 if let config {
@@ -239,7 +252,7 @@ public class ScalekitClient: NSObject, ObservableObject {
         let endpoint = credentials?.authState
             .lastAuthorizationResponse.request.configuration
             .discoveryDocument?.endSessionEndpoint
-            ?? URL(string: "https://\(domain)/oidc/logout")!
+            ?? URL(string: "https://\(environmentURL)/oidc/logout")!
 
         var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: true)!
         components.queryItems = [
