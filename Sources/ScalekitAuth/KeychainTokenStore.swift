@@ -2,7 +2,7 @@ import AppAuth
 import Foundation
 import Security
 
-class KeychainTokenStore {
+final class KeychainTokenStore {
     private let service: String
     private let account = "scalekit_auth_state"
 

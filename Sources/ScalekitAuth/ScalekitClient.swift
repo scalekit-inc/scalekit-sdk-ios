@@ -249,7 +249,7 @@ public final class ScalekitClient: NSObject, ObservableObject {
         _ = try? await withCheckedThrowingContinuation { (cont: CheckedContinuation<URL?, Error>) in
             let session = ASWebAuthenticationSession(
                 url: url,
-                callbackURLScheme: redirectURI.scheme
+                callbackURLScheme: postLogoutRedirectURI.scheme
             ) { callbackURL, _ in
                 cont.resume(returning: callbackURL)
             }
