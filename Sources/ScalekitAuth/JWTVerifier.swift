@@ -5,7 +5,7 @@ import Security
 // Used for both ID tokens (during login) and access tokens (decodedClaims).
 enum JWTVerifier {
 
-    enum Error: Swift.Error, LocalizedError {
+    enum Error: Swift.Error, LocalizedError, Equatable {
         case malformedToken
         case unsupportedAlgorithm(String)
         case keyNotFound(kid: String)
@@ -44,6 +44,11 @@ enum JWTVerifier {
     // MARK: - Public
 
     static func verify(token: String, jwksURL: URL) async throws {
+        try await verify(token: token, jwksURL: jwksURL, urlSession: .shared)
+    }
+
+    // Internal overload used by tests to inject a mock URLSession.
+    static func verify(token: String, jwksURL: URL, urlSession: URLSession) async throws {
         let parts = token.components(separatedBy: ".")
         guard parts.count == 3 else { throw Error.malformedToken }
 
@@ -58,21 +63,22 @@ enum JWTVerifier {
         let signingInput = Data((parts[0] + "." + parts[1]).utf8)
         guard let rawSig = base64urlDecode(parts[2]) else { throw Error.malformedToken }
 
-        let key = try await resolveKey(kid: kid, alg: alg, jwksURL: jwksURL, allowRefetch: true)
+        let key = try await resolveKey(kid: kid, alg: alg, jwksURL: jwksURL,
+                                       allowRefetch: true, urlSession: urlSession)
         try verifySignature(alg: alg, signingInput: signingInput, rawSig: rawSig, key: key)
     }
 
     // MARK: - Cache resolution
 
     private static func resolveKey(
-        kid: String, alg: String, jwksURL: URL, allowRefetch: Bool
+        kid: String, alg: String, jwksURL: URL, allowRefetch: Bool, urlSession: URLSession
     ) async throws -> SecKey {
         if let entry = await jwksCache.entry(for: jwksURL), !entry.isExpired {
             if let key = lookupKey(kid: kid, alg: alg, in: entry) { return key }
             guard allowRefetch else { throw Error.keyNotFound(kid: kid) }
         }
 
-        let rawKeys = try await fetchKeys(from: jwksURL)
+        let rawKeys = try await fetchKeys(from: jwksURL, urlSession: urlSession)
         let entry = CacheEntry(rawKeys: rawKeys, builtKeys: buildSecKeys(from: rawKeys), fetchedAt: .now)
         await jwksCache.set(entry, for: jwksURL)
 
@@ -82,12 +88,14 @@ enum JWTVerifier {
     }
 
     private static func lookupKey(kid: String, alg: String, in entry: CacheEntry) -> SecKey? {
-        if !kid.isEmpty, let key = entry.builtKeys[kid] { return key }
-        // Fallback: build on-demand from first raw JWK matching alg
-        if let jwk = entry.rawKeys.first(where: { ($0["alg"] as? String) == alg }) {
-            return try? buildKey(from: jwk, alg: alg)
+        if !kid.isEmpty {
+            // kid present in JWT header: must match exactly — no alg-based fallback
+            return entry.builtKeys[kid]
         }
-        return nil
+        // No kid in JWT header: use first key whose alg matches
+        return entry.rawKeys
+            .first(where: { ($0["alg"] as? String) == alg })
+            .flatMap { try? buildKey(from: $0, alg: alg) }
     }
 
     private static func buildSecKeys(from jwks: [[String: Any]]) -> [String: SecKey] {
@@ -101,8 +109,8 @@ enum JWTVerifier {
         return result
     }
 
-    private static func fetchKeys(from url: URL) async throws -> [[String: Any]] {
-        let (data, _) = try await URLSession.shared.data(from: url)
+    private static func fetchKeys(from url: URL, urlSession: URLSession) async throws -> [[String: Any]] {
+        let (data, _) = try await urlSession.data(from: url)
         guard let jwks = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let keys = jwks["keys"] as? [[String: Any]]
         else { throw Error.malformedToken }

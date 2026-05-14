@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import AppAuth
 import AuthenticationServices
 import Combine
@@ -33,7 +34,7 @@ public class ScalekitClient: NSObject, ObservableObject {
     public var isAuthenticated: Bool { credentials != nil }
 
     public init(environmentURL: String, clientId: String, redirectScheme: String) {
-        self.environmentURL = Self.extractHost(environmentURL)
+        self.environmentURL = extractHost(environmentURL)
         self.clientId = clientId
         guard let uri = URL(string: "\(redirectScheme):/oauth2redirect") else {
             fatalError("[ScalekitAuth] Invalid redirectScheme: '\(redirectScheme)'")
@@ -45,18 +46,6 @@ public class ScalekitClient: NSObject, ObservableObject {
         super.init()
         loaded?.authState.stateChangeDelegate = self
         loaded?.authState.errorDelegate = self
-    }
-
-    /// Accepts "https://env.scalekit.cloud", "env.scalekit.cloud", or
-    /// "https://env.scalekit.cloud/" and returns the bare host in all cases.
-    private static func extractHost(_ raw: String) -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.contains("://"),
-           let url = URL(string: trimmed),
-           let host = url.host {
-            return host
-        }
-        return trimmed.components(separatedBy: "/").first ?? trimmed
     }
 
     // MARK: - Login
@@ -302,3 +291,5 @@ private class PresentationContext: NSObject, ASWebAuthenticationPresentationCont
         fatalError("[ScalekitAuth] No UIWindowScene available")
     }
 }
+
+#endif // canImport(UIKit)
