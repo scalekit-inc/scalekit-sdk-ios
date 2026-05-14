@@ -1,11 +1,9 @@
-import CryptoKit
 import Foundation
 import Security
 
-// Verifies the RS256 or ES256 signature of an OIDC ID token against
-// the server's JWKS. Cryptographic proof the token came from Scalekit
-// and was not tampered with in transit.
-enum IDTokenVerifier {
+// Verifies the RS256 or ES256 signature of any JWT against the server's JWKS.
+// Used for both ID tokens (during login) and access tokens (decodedClaims).
+enum JWTVerifier {
 
     enum Error: Swift.Error, LocalizedError {
         case malformedToken
@@ -16,11 +14,11 @@ enum IDTokenVerifier {
 
         var errorDescription: String? {
             switch self {
-            case .malformedToken:              return "ID token is malformed."
+            case .malformedToken:              return "JWT is malformed."
             case .unsupportedAlgorithm(let a): return "Unsupported JWT algorithm: \(a)."
             case .keyNotFound(let k):          return "No JWKS key found for kid=\(k)."
             case .invalidKey:                  return "Could not construct verification key from JWKS."
-            case .signatureInvalid:            return "ID token signature is invalid."
+            case .signatureInvalid:            return "JWT signature is invalid."
             }
         }
     }
@@ -28,7 +26,8 @@ enum IDTokenVerifier {
     // MARK: - Cache (actor-isolated for thread safety)
 
     private struct CacheEntry {
-        let keys: [[String: Any]]
+        let rawKeys: [[String: Any]]
+        let builtKeys: [String: SecKey]  // kid → pre-built SecKey
         let fetchedAt: Date
         var isExpired: Bool { Date.now.timeIntervalSince(fetchedAt) > 86_400 } // 24 h
     }
@@ -44,8 +43,8 @@ enum IDTokenVerifier {
 
     // MARK: - Public
 
-    static func verify(idToken: String, jwksURL: URL) async throws {
-        let parts = idToken.components(separatedBy: ".")
+    static func verify(token: String, jwksURL: URL) async throws {
+        let parts = token.components(separatedBy: ".")
         guard parts.count == 3 else { throw Error.malformedToken }
 
         guard let headerData = base64urlDecode(parts[0]),
@@ -59,36 +58,47 @@ enum IDTokenVerifier {
         let signingInput = Data((parts[0] + "." + parts[1]).utf8)
         guard let rawSig = base64urlDecode(parts[2]) else { throw Error.malformedToken }
 
-        // Try cached keys first; re-fetch if expired or kid not found
-        let jwk = try await resolveKey(kid: kid, alg: alg, jwksURL: jwksURL, allowRefetch: true)
-        try verifySignature(alg: alg, signingInput: signingInput, rawSig: rawSig, jwk: jwk)
+        let key = try await resolveKey(kid: kid, alg: alg, jwksURL: jwksURL, allowRefetch: true)
+        try verifySignature(alg: alg, signingInput: signingInput, rawSig: rawSig, key: key)
     }
 
     // MARK: - Cache resolution
 
     private static func resolveKey(
         kid: String, alg: String, jwksURL: URL, allowRefetch: Bool
-    ) async throws -> [String: Any] {
-        // Use cache if present and fresh
+    ) async throws -> SecKey {
         if let entry = await jwksCache.entry(for: jwksURL), !entry.isExpired {
-            if let jwk = findKey(kid: kid, alg: alg, in: entry.keys) { return jwk }
-            // kid not in cache — fall through to refetch if allowed
+            if let key = lookupKey(kid: kid, alg: alg, in: entry) { return key }
             guard allowRefetch else { throw Error.keyNotFound(kid: kid) }
         }
 
-        // Fetch and cache
-        let keys = try await fetchKeys(from: jwksURL)
-        await jwksCache.set(CacheEntry(keys: keys, fetchedAt: .now), for: jwksURL)
+        let rawKeys = try await fetchKeys(from: jwksURL)
+        let entry = CacheEntry(rawKeys: rawKeys, builtKeys: buildSecKeys(from: rawKeys), fetchedAt: .now)
+        await jwksCache.set(entry, for: jwksURL)
 
-        guard let jwk = findKey(kid: kid, alg: alg, in: keys) else {
-            throw Error.keyNotFound(kid: kid)
-        }
-        return jwk
+        guard let key = lookupKey(kid: kid, alg: alg, in: entry)
+        else { throw Error.keyNotFound(kid: kid) }
+        return key
     }
 
-    private static func findKey(kid: String, alg: String, in keys: [[String: Any]]) -> [String: Any]? {
-        keys.first(where: { ($0["kid"] as? String) == kid && !kid.isEmpty })
-            ?? keys.first(where: { ($0["alg"] as? String) == alg })
+    private static func lookupKey(kid: String, alg: String, in entry: CacheEntry) -> SecKey? {
+        if !kid.isEmpty, let key = entry.builtKeys[kid] { return key }
+        // Fallback: build on-demand from first raw JWK matching alg
+        if let jwk = entry.rawKeys.first(where: { ($0["alg"] as? String) == alg }) {
+            return try? buildKey(from: jwk, alg: alg)
+        }
+        return nil
+    }
+
+    private static func buildSecKeys(from jwks: [[String: Any]]) -> [String: SecKey] {
+        var result: [String: SecKey] = [:]
+        for jwk in jwks {
+            guard let kid = jwk["kid"] as? String, !kid.isEmpty,
+                  let alg = jwk["alg"] as? String,
+                  let key = try? buildKey(from: jwk, alg: alg) else { continue }
+            result[kid] = key
+        }
+        return result
     }
 
     private static func fetchKeys(from url: URL) async throws -> [[String: Any]] {
@@ -102,9 +112,8 @@ enum IDTokenVerifier {
     // MARK: - Signature verification
 
     private static func verifySignature(
-        alg: String, signingInput: Data, rawSig: Data, jwk: [String: Any]
+        alg: String, signingInput: Data, rawSig: Data, key: SecKey
     ) throws {
-        let key = try buildKey(from: jwk, alg: alg)
         var cfError: Unmanaged<CFError>?
 
         if alg == "RS256" {
