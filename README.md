@@ -35,7 +35,7 @@ In the Scalekit dashboard, open your Native Application and register both URIs:
 | Purpose | URI |
 |---|---|
 | Login callback | `com.your.bundleid:/oauth2redirect` |
-| Post-logout callback | `com.your.bundleid://logout` |
+| Post-logout callback | `com.your.bundleid:/logout` |
 
 Both use your app's bundle identifier as the URL scheme.
 
@@ -83,7 +83,7 @@ ScalekitClient(
     clientId: "your_client_id",
     redirectScheme: "com.your.bundleid",
     redirectPath: "/auth/callback",
-    postLogoutPath: "//loggedout"
+    postLogoutPath: "/loggedout"
 )
 ```
 

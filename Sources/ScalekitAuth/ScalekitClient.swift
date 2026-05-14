@@ -14,7 +14,7 @@ public final class ScalekitClient: NSObject, ObservableObject {
     public let clientId: String
 
     private let redirectURI: URL
-    private let postLogoutRedirectURI: String
+    private let postLogoutRedirectURI: URL
     private let tokenStore: KeychainTokenStore
 
     /// In-flight login flow — prevents concurrent login attempts.
@@ -40,14 +40,14 @@ public final class ScalekitClient: NSObject, ObservableObject {
     ///   - redirectScheme: Your app's bundle identifier, registered as a URL scheme in Info.plist.
     ///   - redirectPath: Path appended to the scheme for the login callback. Defaults to `/oauth2redirect`.
     ///     Override only if that path conflicts with another registered handler in your app.
-    ///   - postLogoutPath: Path appended to the scheme for the post-logout callback. Defaults to `//logout`.
+    ///   - postLogoutPath: Path appended to the scheme for the post-logout callback. Defaults to `/logout`.
     ///     Override only if that path conflicts with another registered handler in your app.
     public init(
         environmentURL: String,
         clientId: String,
         redirectScheme: String,
         redirectPath: String = "/oauth2redirect",
-        postLogoutPath: String = "//logout"
+        postLogoutPath: String = "/logout"
     ) {
         self.environmentURL = extractHost(environmentURL)
         self.clientId = clientId
@@ -55,7 +55,10 @@ public final class ScalekitClient: NSObject, ObservableObject {
             fatalError("[ScalekitAuth] Invalid redirectScheme/redirectPath: '\(redirectScheme):\(redirectPath)'")
         }
         self.redirectURI = uri
-        self.postLogoutRedirectURI = "\(redirectScheme):\(postLogoutPath)"
+        guard let postLogoutURI = URL(string: "\(redirectScheme):\(postLogoutPath)") else {
+            fatalError("[ScalekitAuth] Invalid redirectScheme/postLogoutPath: '\(redirectScheme):\(postLogoutPath)'")
+        }
+        self.postLogoutRedirectURI = postLogoutURI
         self.tokenStore = KeychainTokenStore(service: "com.scalekit.\(self.environmentURL)")
         let loaded = tokenStore.load()
         self.credentials = loaded
@@ -239,7 +242,7 @@ public final class ScalekitClient: NSObject, ObservableObject {
 
         components.queryItems = [
             URLQueryItem(name: "id_token_hint", value: idToken),
-            URLQueryItem(name: "post_logout_redirect_uri", value: postLogoutRedirectURI)
+            URLQueryItem(name: "post_logout_redirect_uri", value: postLogoutRedirectURI.absoluteString)
         ]
         guard let url = components.url else { return }
 
